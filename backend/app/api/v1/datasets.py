@@ -6,6 +6,7 @@ import json
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
+from app.config import get_settings
 from app.data.ingestion import SUPPORTED_EXTENSIONS
 from app.dependencies import get_current_user, get_db
 from app.schemas.auth import AuthenticatedUser
@@ -18,6 +19,18 @@ from app.services.dataset_service import DatasetService
 from app.services.user_service import ensure_user
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
+
+
+async def _read_upload_with_limit(file: UploadFile, max_bytes: int) -> bytes:
+    """Reject oversized multipart bodies before retaining the whole payload."""
+    chunks: list[bytes] = []
+    received = 0
+    while chunk := await file.read(64 * 1024):
+        received += len(chunk)
+        if received > max_bytes:
+            raise HTTPException(status_code=413, detail=f"Upload exceeds the {max_bytes} byte limit.")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _to_read(dataset, descriptor) -> DatasetRead:
@@ -62,7 +75,7 @@ async def upload_dataset(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"unsupported file type '{suffix}'. Supported: {sorted(SUPPORTED_EXTENSIONS)}",
         )
-    content = await file.read()
+    content = await _read_upload_with_limit(file, get_settings().max_upload_bytes)
     service = DatasetService(db)
     try:
         dataset = await service.ingest_upload(str(user.id), filename, content)

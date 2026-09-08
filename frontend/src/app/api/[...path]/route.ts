@@ -3,13 +3,7 @@ import type { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const DEFAULT_PRODUCTION_BACKEND_URL = "https://autonomous-decision-intelligence-engine.onrender.com";
-
-const BACKEND_API_URL = (
-  process.env.BACKEND_API_URL ??
-  process.env.NEXT_PUBLIC_BACKEND_API_URL ??
-  (process.env.VERCEL ? DEFAULT_PRODUCTION_BACKEND_URL : "http://127.0.0.1:8011")
-).replace(/\/+$/, "");
+const BACKEND_API_URL = (process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000").replace(/\/+$/, "");
 
 type RouteContext = {
   params: {
@@ -69,6 +63,9 @@ function buildClientHeaders(response: Response) {
 }
 
 async function proxy(request: NextRequest, { params }: RouteContext) {
+  if (!process.env.BACKEND_API_URL && process.env.VERCEL) {
+    return Response.json({ detail: "The backend service is not configured." }, { status: 503 });
+  }
   const upstreamPath = params.path.join("/");
   const targetUrl = `${BACKEND_API_URL}/api/${upstreamPath}${request.nextUrl.search}`;
   const headers = buildUpstreamHeaders(request);

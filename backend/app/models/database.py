@@ -13,11 +13,21 @@ class Base(DeclarativeBase):
 
 
 def _engine_kwargs(url: str) -> dict:
-    kwargs: dict = {"future": True, "echo": get_settings().environment == "development"}
+    settings = get_settings()
+    kwargs: dict = {"future": True, "echo": settings.environment == "development"}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
     else:
-        kwargs.update({"pool_pre_ping": True, "pool_size": 5, "max_overflow": 10})
+        kwargs.update(
+            {
+                "pool_pre_ping": True,
+                "pool_size": settings.database_pool_size,
+                "max_overflow": settings.database_max_overflow,
+                "pool_timeout": settings.database_pool_timeout,
+                "pool_recycle": settings.database_pool_recycle_seconds,
+                "connect_args": {"timeout": settings.database_connect_timeout_seconds},
+            }
+        )
     return kwargs
 
 
@@ -44,3 +54,7 @@ async def get_db():
         finally:
             await session.close()
 
+
+async def dispose_engine() -> None:
+    """Release pooled connections during a graceful Render shutdown."""
+    await get_engine().dispose()

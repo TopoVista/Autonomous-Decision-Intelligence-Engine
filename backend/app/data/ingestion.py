@@ -24,7 +24,9 @@ from app.data.profiler import fast_profile
 
 SUPPORTED_EXTENSIONS = {".csv", ".tsv", ".json"}
 _HEAVY_EXTENSIONS = {".xlsx", ".xls", ".parquet"}
-MAX_ROWS = 500_000
+# Lists of Python dicts are substantially larger than their source CSV.  This
+# keeps profiling and persistence inside the memory budget of a small instance.
+MAX_ROWS = 100_000
 
 
 class IngestionError(ValueError):

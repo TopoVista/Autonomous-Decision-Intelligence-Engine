@@ -16,7 +16,9 @@ DEFAULT_LOCAL_ORIGIN_REGEX = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=str(ENV_FILE), env_file_encoding="utf-8", extra="ignore")
 
-    database_url: str = "sqlite+aiosqlite:////app/data/app.db"
+    # SQLite is useful for an entirely local first run.  Production must use a
+    # managed Postgres database: Render's filesystem is deliberately ephemeral.
+    database_url: str = "sqlite+aiosqlite:///./decision_intelligence.db"
     redis_url: str = "redis://localhost:6379/0"
     openai_api_key: str = ""
     clerk_secret_key: str = ""
@@ -29,8 +31,14 @@ class Settings(BaseSettings):
         default=f"http://localhost:3000,http://localhost:3002,http://localhost:3003,{DEFAULT_FRONTEND_ORIGIN}"
     )
     allowed_origin_regex: str = ""
-    max_query_rows: int = 1000
-    agent_max_iterations: int = 5
+    max_query_rows: int = Field(default=1000, ge=1, le=5000)
+    database_pool_size: int = 2
+    database_max_overflow: int = 1
+    database_pool_timeout: int = 10
+    database_pool_recycle_seconds: int = 1800
+    database_connect_timeout_seconds: float = 10.0
+    query_timeout_seconds: float = Field(default=30.0, gt=0, le=60)
+    agent_max_iterations: int = Field(default=5, ge=1, le=10)
     rate_limit_requests: int = 20
     cache_ttl_schema: int = 3600
     cache_ttl_query: int = 300
@@ -43,9 +51,9 @@ class Settings(BaseSettings):
     # truncated) before being serialized into LLM prompts.
     redact_pii_in_prompts: bool = True
     auth_bypass: bool = False
-    # Directory where ingested dataset SQLite files are stored.
-    uploads_dir: str = "./uploads"
-    max_upload_bytes: int = 50 * 1024 * 1024  # 50 MB
+    # Uploads are temporary working files, never application persistence.
+    uploads_dir: str = "/tmp/ask-database-uploads"
+    max_upload_bytes: int = 10 * 1024 * 1024
     # Chroma vector store for RAG (optional). Leave chroma_host empty to use
     # the in-process fallback store.
     chroma_host: str = ""
@@ -68,22 +76,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def normalize_database_url(self) -> "Settings":
-        """Render auto-injects DATABASE_URL as postgres:// when a PG service is
-        attached.  Since we run on the free SQLite-only stack (no asyncpg),
-        detect any postgres URL and silently swap it for the local SQLite file.
-        """
-        url = self.database_url
-        if any(
-            url.startswith(p)
-            for p in ("postgres://", "postgresql://", "postgresql+asyncpg://", "postgresql+psycopg")
-        ):
-            import warnings
-            warnings.warn(
-                "DATABASE_URL points to PostgreSQL but asyncpg is not installed. "
-                "Falling back to SQLite. Set DATABASE_URL to a sqlite+aiosqlite:// URL to suppress this.",
-                stacklevel=2,
-            )
-            self.database_url = "sqlite+aiosqlite:////app/data/app.db"
+        """Normalize provider URLs; never silently replace a production DB."""
+        if self.database_url.startswith("postgres://"):
+            self.database_url = "postgresql+asyncpg://" + self.database_url.removeprefix("postgres://")
+        elif self.database_url.startswith("postgresql://"):
+            self.database_url = "postgresql+asyncpg://" + self.database_url.removeprefix("postgresql://")
+        if self.environment.lower() == "production" and self.database_url.startswith("sqlite"):
+            raise ValueError("DATABASE_URL must point to managed PostgreSQL in production; SQLite is ephemeral on Render.")
         return self
 
 

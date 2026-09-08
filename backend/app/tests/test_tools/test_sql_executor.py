@@ -37,3 +37,22 @@ async def test_sql_executor_blocks_non_select(tmp_path: Path):
     assert result["success"] is False
     assert "Only SELECT" in result["error"]
 
+
+@pytest.mark.asyncio
+async def test_sql_executor_enforces_configured_result_cap(tmp_path: Path, monkeypatch):
+    db_path = tmp_path / "limited.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE values_table (value INTEGER)")
+    conn.executemany("INSERT INTO values_table (value) VALUES (?)", [(i,) for i in range(10)])
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setenv("MAX_QUERY_ROWS", "3")
+    from app.config import get_settings
+    get_settings.cache_clear()
+    try:
+        result = await SQLExecutor().execute(f"sqlite+aiosqlite:///{db_path}", "SELECT value FROM values_table LIMIT 10")
+        assert result["success"] is True
+        assert result["row_count"] == 3
+    finally:
+        get_settings.cache_clear()

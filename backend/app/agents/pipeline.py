@@ -16,6 +16,7 @@ from app.core.artifacts import default_artifact_store
 from app.memory.session_memory import SessionMemory
 from app.memory.vector_memory import VectorMemory
 from app.services.llm_service import LLMService
+from app.config import get_settings
 from app.specialists import get_specialists_for_intent, specialist_registry
 from app.tools.anomaly_detector import AnomalyDetector
 from app.tools.schema_inspector import SchemaInspector
@@ -84,7 +85,11 @@ class AgentPipeline:
         yield {"type": "plan", "data": plan}
 
         query_results = []
-        for task in plan.get("tasks", []):
+        settings = get_settings()
+        tasks = plan.get("tasks", [])[: settings.agent_max_iterations]
+        if len(plan.get("tasks", [])) > len(tasks):
+            logger.warning("agent_plan_truncated", requested_tasks=len(plan.get("tasks", [])), max_tasks=settings.agent_max_iterations)
+        for task in tasks:
             yield {
                 "type": "step",
                 "data": {"step": "sql_generation", "message": f"Generating query: {task['description'][:60]}..."},
@@ -92,7 +97,7 @@ class AgentPipeline:
             sql_result = await self.sql_gen.run(task, schema_str, query_results)
             sql = sql_result["sql"]
             result = None
-            for attempt in range(3):
+            for attempt in range(min(3, settings.agent_max_iterations)):
                 if sql is None:
                     result = {
                         **sql_result,
@@ -114,7 +119,7 @@ class AgentPipeline:
                             task_description=result.get("task_description"),
                         )
                     break
-                if attempt < 2:
+                if attempt < min(3, settings.agent_max_iterations) - 1:
                     yield {
                         "type": "step",
                         "data": {"step": "sql_correction", "message": f"Correcting SQL error (attempt {attempt + 2})..."},

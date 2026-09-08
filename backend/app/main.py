@@ -10,6 +10,7 @@ from app.config import get_settings
 from app.middleware.rate_limiter import RateLimiterMiddleware
 from app.middleware.request_logger import RequestLoggerMiddleware
 from app.models import Base, get_engine
+from app.models.database import dispose_engine
 
 settings = get_settings()
 
@@ -39,8 +40,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-#app.add_middleware(RateLimiterMiddleware)
-#app.add_middleware(RequestLoggerMiddleware)
+app.add_middleware(RequestLoggerMiddleware)
 app.include_router(api_router, prefix="/api")
 
 
@@ -53,3 +53,8 @@ async def health():
 async def startup():
     async with get_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    await dispose_engine()

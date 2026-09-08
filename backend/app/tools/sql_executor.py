@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 from app.tools.sql_validator import validate_sql
@@ -27,11 +29,14 @@ class SQLExecutor:
             }
 
         normalized_sql = validation.normalized_sql
-        if "LIMIT" not in normalized_sql.upper():
-            normalized_sql = f"{normalized_sql} LIMIT {settings.max_query_rows}"
+        # An outer limit is deliberate: an LLM-provided LIMIT can otherwise be
+        # arbitrarily large.  It also bounds the rows materialised for JSON.
+        normalized_sql = f"SELECT * FROM ({normalized_sql}) AS bounded_query LIMIT {settings.max_query_rows}"
 
         try:
-            engine = create_async_engine(connection_string, future=True, pool_pre_ping=True)
+            # User connections are dynamic.  A persistent pool per URL would
+            # grow without bound, so release each connection deterministically.
+            engine = create_async_engine(connection_string, future=True, poolclass=NullPool)
         except Exception as exc:
             elapsed = int((time.monotonic() - start) * 1000)
             return {
@@ -45,7 +50,12 @@ class SQLExecutor:
 
         try:
             async with engine.connect() as conn:
-                result = await conn.execute(text(normalized_sql))
+                if connection_string.startswith("postgresql"):
+                    await conn.execute(
+                        text("SELECT set_config('statement_timeout', :timeout_ms, true)"),
+                        {"timeout_ms": str(int(timeout * 1000))},
+                    )
+                result = await asyncio.wait_for(conn.execute(text(normalized_sql)), timeout=timeout)
                 rows = [dict(row._mapping) for row in result.fetchall()] if result.returns_rows else []
                 columns = list(result.keys()) if result.returns_rows else []
                 elapsed = int((time.monotonic() - start) * 1000)
@@ -57,6 +67,13 @@ class SQLExecutor:
                     "error": None,
                     "execution_time_ms": elapsed,
                 }
+        except asyncio.TimeoutError:
+            elapsed = int((time.monotonic() - start) * 1000)
+            return {
+                "success": False, "rows": [], "columns": [], "row_count": 0,
+                "error": "Query timed out. Try a narrower question or a smaller date range.",
+                "execution_time_ms": elapsed,
+            }
         except SQLAlchemyError as exc:
             elapsed = int((time.monotonic() - start) * 1000)
             return {
@@ -79,4 +96,3 @@ class SQLExecutor:
             }
         finally:
             await engine.dispose()
-

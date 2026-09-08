@@ -80,10 +80,14 @@ class DatasetService:
         descriptor = self._descriptor(dataset)
         rows = read_table(Path(dataset.file_path), descriptor.table_name or "data", limit=limit)
         columns = list(rows[0].keys()) if rows else [c.name for c in descriptor.columns]
-        summary = table_summary(columns, rows, limit=limit)
-        summary["dataset_id"] = dataset.id
-        summary["table_name"] = descriptor.table_name or "data"
-        return summary
+        # Keep this response aligned with TablePreviewResponse.  The former
+        # ``rows`` key caused a production-only response-validation 500.
+        return {
+            "dataset_id": dataset.id,
+            "table_name": descriptor.table_name or "data",
+            "columns": columns,
+            "rows_preview": rows[:limit],
+        }
 
     def connection_string(self, dataset: Dataset) -> str:
         """SQLite async connection string so the SQL agent can analyze this dataset."""

@@ -28,8 +28,4 @@ RUN mkdir -p /app/data
 EXPOSE 8000
 
 # Single worker + uvloop to stay within 512 MB free-tier RAM
-CMD ["uvicorn", "app.main:app", \
-     "--host", "0.0.0.0", \
-     "--port", "8000", \
-     "--workers", "1", \
-     "--loop", "uvloop"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --loop uvloop"]
