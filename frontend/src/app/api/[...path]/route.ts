@@ -62,6 +62,25 @@ function buildClientHeaders(response: Response) {
   return headers;
 }
 
+function keepRedirectsOnProxy(response: Response, headers: Headers) {
+  const location = response.headers.get("location");
+  if (!location) {
+    return;
+  }
+
+  try {
+    const upstream = new URL(location, BACKEND_API_URL);
+    const backend = new URL(BACKEND_API_URL);
+    // FastAPI commonly redirects `/route` to `/route/`.  Do not allow that
+    // otherwise harmless redirect to expose Render or bypass this proxy.
+    if (upstream.origin === backend.origin) {
+      headers.set("location", `${upstream.pathname}${upstream.search}${upstream.hash}`);
+    }
+  } catch {
+    // Preserve a malformed/external Location as supplied by the upstream.
+  }
+}
+
 async function proxy(request: NextRequest, { params }: RouteContext) {
   if (!process.env.BACKEND_API_URL && process.env.VERCEL) {
     return Response.json({ detail: "The backend service is not configured." }, { status: 503 });
@@ -84,10 +103,12 @@ async function proxy(request: NextRequest, { params }: RouteContext) {
   try {
     const response = await fetch(targetUrl, init);
 
+    const clientHeaders = buildClientHeaders(response);
+    keepRedirectsOnProxy(response, clientHeaders);
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
-      headers: buildClientHeaders(response),
+      headers: clientHeaders,
     });
   } catch (error) {
     console.error(`Proxy request failed for ${request.method} ${targetUrl}:`, error);
