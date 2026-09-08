@@ -193,10 +193,10 @@ export interface DatasetListResponse {
 }
 
 export interface TablePreviewResponse {
+  dataset_id: string;
+  table_name: string;
   columns: string[];
-  rows: Record<string, unknown>[];
-  total_rows: number;
-  preview_limit: number;
+  rows_preview: Record<string, unknown>[];
 }
 
 export async function listDatasets(token?: string | null) {

@@ -88,7 +88,7 @@ export default function DatasetsPage() {
               <Badge className="border-accent/20 bg-accent/10 text-accent">Dataset management</Badge>
               <CardTitle className="mt-4 text-3xl">Upload, profile, and explore datasets</CardTitle>
               <CardDescription className="mt-3 text-base text-fg/72">
-                Ingest CSV, Excel, or Parquet files. Generate deep profiles and preview rows.
+                Ingest CSV, TSV, or JSON files. Generate deep profiles and preview rows.
               </CardDescription>
             </div>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -150,13 +150,13 @@ function UploadSection({
     <Card>
       <CardHeader>
         <CardTitle>Upload a dataset</CardTitle>
-        <CardDescription>Supported formats: CSV, Excel (.xlsx), Parquet, JSON</CardDescription>
+        <CardDescription>Supported formats: CSV, TSV, and JSON</CardDescription>
       </CardHeader>
       <CardContent>
         <input
           ref={fileInputRef}
           type="file"
-          accept=".csv,.xlsx,.xls,.parquet,.json"
+          accept=".csv,.tsv,.json"
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -175,7 +175,7 @@ function UploadSection({
           <p className="mt-4 text-sm font-medium text-fg">
             {uploading ? "Uploading..." : "Click to upload a dataset"}
           </p>
-          <p className="mt-2 text-xs text-muted-fg">CSV, Excel, Parquet, or JSON files</p>
+          <p className="mt-2 text-xs text-muted-fg">CSV, TSV, or JSON files</p>
         </div>
         {error && (
           <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-400">
@@ -253,6 +253,7 @@ function DatasetList({
 }
 
 function PreviewPanel({ preview, isLoading }: { preview: TablePreviewResponse | null; isLoading: boolean }) {
+  const rows = Array.isArray(preview?.rows_preview) ? preview.rows_preview : [];
   if (isLoading) {
     return (
       <Card>
@@ -261,7 +262,7 @@ function PreviewPanel({ preview, isLoading }: { preview: TablePreviewResponse | 
       </Card>
     );
   }
-  if (!preview || !preview.rows.length) {
+  if (!preview || !rows.length) {
     return (
       <Card>
         <CardHeader><CardTitle>Data preview</CardTitle></CardHeader>
@@ -277,7 +278,7 @@ function PreviewPanel({ preview, isLoading }: { preview: TablePreviewResponse | 
     <Card>
       <CardHeader>
         <CardTitle>Data preview</CardTitle>
-        <CardDescription>{preview.total_rows} total rows, showing {preview.rows.length}</CardDescription>
+        <CardDescription>{preview.table_name} preview, showing {rows.length} row{rows.length === 1 ? "" : "s"}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="overflow-hidden rounded-[20px] border border-white/10">
@@ -291,7 +292,7 @@ function PreviewPanel({ preview, isLoading }: { preview: TablePreviewResponse | 
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
-                {preview.rows.map((row, idx) => (
+                {rows.map((row, idx) => (
                   <tr key={idx} className="hover:bg-white/5">
                     {preview.columns.map((col) => (
                       <td key={col} className="max-w-[12rem] truncate px-3 py-2 text-fg/88">
