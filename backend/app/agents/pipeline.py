@@ -58,6 +58,9 @@ class AgentPipeline:
 
         yield {"type": "step", "data": {"step": "intent_classification", "message": "Understanding your question..."}}
         intent = await self.intent_agent.run(user_question, schema_str)
+        if not isinstance(intent, dict):
+            logger.warning("invalid_intent_agent_result")
+            intent = {"intent": "exploratory", "confidence": 0.0, "entities": {}}
         yield {"type": "intent", "data": intent}
 
         # Intent-based routing — look up which specialists handle this intent.
@@ -82,25 +85,42 @@ class AgentPipeline:
 
         yield {"type": "step", "data": {"step": "task_planning", "message": "Breaking down into sub-questions..."}}
         plan = await self.planner.run(user_question, intent, schema_str, history)
+        if not isinstance(plan, dict):
+            logger.warning("invalid_planner_result")
+            plan = {}
+        raw_tasks = plan.get("tasks")
+        if not isinstance(raw_tasks, list):
+            raw_tasks = []
+        tasks = [
+            {**task, "id": str(task.get("id") or f"T{index}"), "description": str(task["description"])}
+            for index, task in enumerate(raw_tasks, start=1)
+            if isinstance(task, dict) and isinstance(task.get("description"), str) and task["description"].strip()
+        ]
+        if not tasks:
+            tasks = [{"id": "T1", "description": "Summarize the available data for the question."}]
+        plan["tasks"] = tasks
         yield {"type": "plan", "data": plan}
 
         query_results = []
         settings = get_settings()
-        tasks = plan.get("tasks", [])[: settings.agent_max_iterations]
-        if len(plan.get("tasks", [])) > len(tasks):
-            logger.warning("agent_plan_truncated", requested_tasks=len(plan.get("tasks", [])), max_tasks=settings.agent_max_iterations)
+        tasks = tasks[: settings.agent_max_iterations]
+        if len(plan["tasks"]) > len(tasks):
+            logger.warning("agent_plan_truncated", requested_tasks=len(plan["tasks"]), max_tasks=settings.agent_max_iterations)
         for task in tasks:
             yield {
                 "type": "step",
                 "data": {"step": "sql_generation", "message": f"Generating query: {task['description'][:60]}..."},
             }
             sql_result = await self.sql_gen.run(task, schema_str, query_results)
-            sql = sql_result["sql"]
+            if not isinstance(sql_result, dict):
+                sql_result = {"sql": None, "task_description": task["description"]}
+            sql = sql_result.get("sql")
             result = None
             for attempt in range(min(3, settings.agent_max_iterations)):
                 if sql is None:
                     result = {
                         **sql_result,
+                        "task_id": task["id"],
                         "success": False,
                         "rows": [],
                         "columns": [],
@@ -111,7 +131,7 @@ class AgentPipeline:
                     break
                 exec_result = await self.executor.execute(connection_string, sql)
                 if exec_result["success"]:
-                    result = {**sql_result, **exec_result}
+                    result = {**sql_result, "sql": sql, "task_id": task["id"], **exec_result}
                     if result.get("columns") and result.get("rows"):
                         result["chart_spec"] = await self.chart_recommender.run(
                             result["columns"],
@@ -126,13 +146,13 @@ class AgentPipeline:
                     }
                     sql = await self.sql_gen.fix_sql(sql, exec_result["error"], schema_str)
                 else:
-                    result = {**sql_result, "success": False, "rows": [], "columns": [], "row_count": 0, "error": exec_result["error"]}
+                    result = {**sql_result, "sql": sql, "task_id": task["id"], "success": False, "rows": [], "columns": [], "row_count": 0, "error": exec_result["error"]}
             yield {
                 "type": "query_result",
                 "data": {
                     "task_id": task["id"],
                     "task_description": task["description"],
-                    "sql": result["sql"],
+                    "sql": result.get("sql"),
                     "rows": result.get("rows", [])[:5],
                     "columns": result.get("columns", []),
                     "chart_spec": result.get("chart_spec"),
@@ -161,9 +181,9 @@ class AgentPipeline:
                 for result in query_results:
                     if not result.get("success") or not result.get("rows"):
                         continue
-                    rows = result["rows"]
+                    rows = result["rows"][: settings.max_specialist_rows]
                     cols = result.get("columns", [])
-                    for col in cols:
+                    for col in cols[: settings.max_specialist_columns]:
                         values: list[float] = []
                         for row in rows:
                             try:
@@ -186,9 +206,9 @@ class AgentPipeline:
                 for result in query_results:
                     if not result.get("success") or not result.get("rows"):
                         continue
-                    rows = result["rows"]
+                    rows = result["rows"][: settings.max_specialist_rows]
                     cols = result.get("columns", [])
-                    for col in cols:
+                    for col in cols[: settings.max_specialist_columns]:
                         text_vals: list[str] = []
                         for row in rows:
                             v = row.get(col)
@@ -210,7 +230,7 @@ class AgentPipeline:
                 for result in query_results:
                     if not result.get("success") or not result.get("rows"):
                         continue
-                    rows = result["rows"]
+                    rows = result["rows"][: settings.max_specialist_rows]
                     cols = result.get("columns", [])
                     numeric_cols = []
                     for col in cols:
@@ -221,7 +241,7 @@ class AgentPipeline:
                             pass
                     if len(numeric_cols) >= 2:
                         target = numeric_cols[-1]
-                        features = numeric_cols[:-1]
+                        features = [numeric_cols[0]]
                         yield {"type": "step", "data": {"step": "specialist_ml", "message": f"ML model: predict '{target}' from {features}..."}}
                         ml_result = await ml_spec.train_model(rows, target=target, features=features)
                         specialist_results.append({"specialist": "ml_scientist", "target": target, "features": features, "result": ml_result})

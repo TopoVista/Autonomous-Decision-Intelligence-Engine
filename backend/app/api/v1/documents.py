@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from uuid import UUID
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-
+from app.config import get_settings
 from app.dependencies import get_current_user, get_db
 from app.rag.retriever import RAGRetriever
 from app.rag.vector_store import get_default_store
@@ -13,6 +12,17 @@ from app.schemas.auth import AuthenticatedUser
 from app.services.user_service import ensure_user
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+async def _read_upload_with_limit(file: UploadFile, max_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    received = 0
+    while chunk := await file.read(64 * 1024):
+        received += len(chunk)
+        if received > max_bytes:
+            raise HTTPException(status_code=413, detail=f"Upload exceeds the {max_bytes} byte limit.")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 @router.post("/upload")
@@ -39,25 +49,26 @@ async def upload_document(
         )
 
     # Read file content
-    content = await file.read()
+    content = await _read_upload_with_limit(file, get_settings().max_upload_bytes)
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
 
     # Ingest document
     retriever = RAGRetriever(vector_store=get_default_store())
-    result = await retriever.ingest_document(
-        content=content,
-        source=filename,
-        user_id=str(user.id),
-    )
+    try:
+        result = await retriever.ingest_document(content=content, source=filename, user_id=str(user.id))
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except MemoryError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     return result
 
 
 @router.post("/search")
 async def search_documents(
-    query: str,
-    limit: int = 5,
+    query: str = Query(min_length=1, max_length=1000),
+    limit: int = Query(default=5, ge=1, le=20),
     source: str | None = None,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db=Depends(get_db),
@@ -94,6 +105,6 @@ async def delete_document(
     user = await ensure_user(db, current_user)
 
     retriever = RAGRetriever(vector_store=get_default_store())
-    deleted = await retriever.delete_document(source)
+    deleted = await retriever.delete_document(source, str(user.id))
 
     return {"source": source, "chunks_deleted": deleted}

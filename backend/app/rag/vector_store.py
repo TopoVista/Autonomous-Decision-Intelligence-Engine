@@ -46,7 +46,7 @@ class VectorStore:
         """Delete all chunks belonging to a user."""
         raise NotImplementedError
 
-    async def delete_by_source(self, source: str) -> int:
+    async def delete_by_source(self, source: str, *, user_id: str | None = None) -> int:
         """Delete all chunks from a source."""
         raise NotImplementedError
 
@@ -108,8 +108,11 @@ class InMemoryVectorStore(VectorStore):
             del self._items[k]
         return len(to_delete)
 
-    async def delete_by_source(self, source: str) -> int:
-        to_delete = [k for k, v in self._items.items() if v.source == source]
+    async def delete_by_source(self, source: str, *, user_id: str | None = None) -> int:
+        to_delete = [
+            key for key, value in self._items.items()
+            if value.source == source and (user_id is None or value.user_id == user_id)
+        ]
         for k in to_delete:
             del self._items[k]
         return len(to_delete)
@@ -227,9 +230,12 @@ class ChromaVectorStore(VectorStore):
             collection.delete(ids=ids)
         return len(ids)
 
-    async def delete_by_source(self, source: str) -> int:
+    async def delete_by_source(self, source: str, *, user_id: str | None = None) -> int:
         collection = await self._get_collection()
-        result = collection.get(where={"source": source})
+        where: dict[str, str] = {"source": source}
+        if user_id is not None:
+            where["user_id"] = user_id
+        result = collection.get(where=where)
         ids = result.get("ids", [])
         if ids:
             collection.delete(ids=ids)

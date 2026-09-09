@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import structlog
 import sentry_sdk
 from fastapi import FastAPI
@@ -9,10 +11,15 @@ from app.api import api_router
 from app.config import get_settings
 from app.middleware.rate_limiter import RateLimiterMiddleware
 from app.middleware.request_logger import RequestLoggerMiddleware
-from app.models import Base, get_engine
 from app.models.database import dispose_engine
 
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    yield
+    await dispose_engine()
 
 if settings.sentry_dsn:
     sentry_sdk.init(dsn=settings.sentry_dsn, traces_sample_rate=0.1)
@@ -30,6 +37,7 @@ app = FastAPI(
     title="Decision Intelligence Agent API",
     version="1.0.0",
     docs_url="/docs" if settings.environment != "production" else None,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -41,20 +49,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RequestLoggerMiddleware)
+app.add_middleware(RateLimiterMiddleware)
 app.include_router(api_router, prefix="/api")
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "1.0.0"}
-
-
-@app.on_event("startup")
-async def startup():
-    async with get_engine().begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    await dispose_engine()

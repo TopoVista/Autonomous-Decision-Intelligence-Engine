@@ -7,7 +7,7 @@ import json
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from app.config import get_settings
-from app.data.ingestion import SUPPORTED_EXTENSIONS
+from app.data.ingestion import IngestionError, SUPPORTED_EXTENSIONS
 from app.dependencies import get_current_user, get_db
 from app.schemas.auth import AuthenticatedUser
 from app.schemas.dataset import (
@@ -79,7 +79,7 @@ async def upload_dataset(
     service = DatasetService(db)
     try:
         dataset = await service.ingest_upload(str(user.id), filename, content)
-    except ValueError as exc:
+    except IngestionError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return _to_read(dataset, json.loads(dataset.descriptor_json))
 
@@ -111,10 +111,12 @@ async def deep_profile_dataset(
         raise HTTPException(status_code=404, detail="Dataset not found")
     try:
         dataset = await service.run_deep_profile(dataset)
+    except IngestionError as exc:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"profiling failed: {exc}",
+            detail="Profiling failed. Please retry with a smaller, valid dataset.",
         ) from exc
     return _to_read(dataset, json.loads(dataset.descriptor_json))
 
@@ -131,7 +133,10 @@ async def preview_dataset(
     dataset = await service.get_dataset(dataset_id, str(user.id))
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    return service.preview_table(dataset, limit=limit)
+    try:
+        return service.preview_table(dataset, limit=limit)
+    except IngestionError as exc:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail=str(exc)) from exc
 
 
 @router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)

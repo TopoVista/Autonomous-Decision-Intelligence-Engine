@@ -163,6 +163,10 @@ class SessionMemory:
             except Exception:
                 pass  # Fall through to SQLite
 
+        # Render's local disk is ephemeral. Production memory must be Redis
+        # backed rather than silently creating an unencrypted local database.
+        if get_settings().environment.lower() == "production":
+            return []
         return await _sqlite_get_history(self.session_id, self.DEFAULT_TTL)
 
     async def add_entry(self, question: str, insight: str, ttl: int = DEFAULT_TTL) -> None:
@@ -181,4 +185,5 @@ class SessionMemory:
             except Exception:
                 pass  # Fall through to SQLite
 
-        await _sqlite_add_entry(self.session_id, question, insight)
+        if get_settings().environment.lower() != "production":
+            await _sqlite_add_entry(self.session_id, question, insight)

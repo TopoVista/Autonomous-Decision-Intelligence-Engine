@@ -23,6 +23,24 @@ services:
       - key: DATABASE_URL
         sync: false          # managed PostgreSQL URL; never fall back to SQLite in production
 
+      - key: ENCRYPTION_KEY
+        sync: false          # Fernet key used to encrypt user database credentials
+
+      - key: CLERK_ISSUER
+        sync: false          # e.g. https://<instance>.clerk.accounts.dev
+
+      - key: ALLOWED_ORIGINS
+        sync: false          # comma-separated Vercel production/custom-domain origins
+
+      - key: AUTH_BYPASS
+        value: "false"
+
+      - key: MAX_QUERY_ROWS
+        value: "500"
+
+      - key: AGENT_MAX_ITERATIONS
+        value: "3"
+
       - key: LOG_LEVEL
         value: warning       # reduce noise / memory overhead in prod
 

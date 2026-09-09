@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     clerk_secret_key: str = ""
     clerk_publishable_key: str = ""
+    clerk_issuer: str = ""
     encryption_key: str = ""
     sentry_dsn: str = ""
     environment: str = "development"
@@ -32,16 +33,31 @@ class Settings(BaseSettings):
     )
     allowed_origin_regex: str = ""
     max_query_rows: int = Field(default=1000, ge=1, le=5000)
-    database_pool_size: int = 2
-    database_max_overflow: int = 1
-    database_pool_timeout: int = 10
-    database_pool_recycle_seconds: int = 1800
-    database_connect_timeout_seconds: float = 10.0
+    database_pool_size: int = Field(default=2, ge=1, le=5)
+    database_max_overflow: int = Field(default=1, ge=0, le=3)
+    database_pool_timeout: int = Field(default=10, ge=1, le=30)
+    database_pool_recycle_seconds: int = Field(default=1800, ge=60, le=3600)
+    database_connect_timeout_seconds: float = Field(default=10.0, gt=0, le=30)
     query_timeout_seconds: float = Field(default=30.0, gt=0, le=60)
     agent_max_iterations: int = Field(default=5, ge=1, le=10)
-    rate_limit_requests: int = 20
-    cache_ttl_schema: int = 3600
-    cache_ttl_query: int = 300
+    agent_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
+    max_concurrent_agent_runs: int = Field(default=2, ge=1, le=4)
+    max_concurrent_db_queries: int = Field(default=2, ge=1, le=4)
+    max_query_result_bytes: int = Field(default=2 * 1024 * 1024, ge=64 * 1024, le=5 * 1024 * 1024)
+    schema_max_tables: int = Field(default=100, ge=1, le=250)
+    schema_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
+    max_schema_prompt_chars: int = Field(default=50_000, ge=5_000, le=100_000)
+    max_document_chunks: int = Field(default=200, ge=1, le=500)
+    max_in_memory_chunks: int = Field(default=2_000, ge=100, le=10_000)
+    max_artifacts_per_session: int = Field(default=50, ge=5, le=200)
+    max_local_cache_entries: int = Field(default=500, ge=50, le=2_000)
+    max_specialist_rows: int = Field(default=500, ge=25, le=2_000)
+    max_specialist_columns: int = Field(default=5, ge=1, le=20)
+    rate_limit_requests: int = Field(default=20, ge=1, le=120)
+    cache_ttl_schema: int = Field(default=3600, ge=60, le=86400)
+    cache_ttl_query: int = Field(default=300, ge=1, le=3600)
+    llm_timeout_seconds: float = Field(default=30.0, gt=0, le=60)
+    llm_model: str = "gpt-4o-mini-2024-07-18"
     # Ollama is an opt-in local-LLM fallback tier. Leave empty to disable.
     # When set, the LLM service tries OpenAI first (if a key is present), then
     # this local endpoint, and finally the deterministic offline fallback.
@@ -53,7 +69,7 @@ class Settings(BaseSettings):
     auth_bypass: bool = False
     # Uploads are temporary working files, never application persistence.
     uploads_dir: str = "/tmp/ask-database-uploads"
-    max_upload_bytes: int = 10 * 1024 * 1024
+    max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1024, le=20 * 1024 * 1024)
     # Chroma vector store for RAG (optional). Leave chroma_host empty to use
     # the in-process fallback store.
     chroma_host: str = ""
@@ -68,7 +84,7 @@ class Settings(BaseSettings):
                 if origin.strip()
             ]
         if not self.allowed_origin_regex:
-            if self.environment == "development":
+            if self.environment.lower() == "development":
                 self.allowed_origin_regex = f"{DEFAULT_LOCAL_ORIGIN_REGEX}|{DEFAULT_VERCEL_ORIGIN_REGEX}"
             else:
                 self.allowed_origin_regex = DEFAULT_VERCEL_ORIGIN_REGEX
@@ -83,6 +99,8 @@ class Settings(BaseSettings):
             self.database_url = "postgresql+asyncpg://" + self.database_url.removeprefix("postgresql://")
         if self.environment.lower() == "production" and self.database_url.startswith("sqlite"):
             raise ValueError("DATABASE_URL must point to managed PostgreSQL in production; SQLite is ephemeral on Render.")
+        if self.environment.lower() == "production" and not self.encryption_key:
+            raise ValueError("ENCRYPTION_KEY is required in production to protect database credentials at rest.")
         return self
 
 

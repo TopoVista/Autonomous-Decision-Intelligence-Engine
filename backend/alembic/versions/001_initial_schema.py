@@ -17,10 +17,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    if bind.dialect.name == "postgresql":
-        op.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
-
     op.create_table(
         "users",
         sa.Column("id", sa.Uuid(), primary_key=True, nullable=False),
@@ -124,4 +120,3 @@ def downgrade() -> None:
     op.drop_table("db_connections")
     op.drop_index("idx_users_clerk_id", table_name="users")
     op.drop_table("users")
-

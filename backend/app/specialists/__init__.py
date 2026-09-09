@@ -85,15 +85,17 @@ INTENT_ROUTING: dict[str, list[str]] = {
 
 # Maps specialist id → implementation class (None = uses pipeline agent)
 _SPECIALIST_CLASSES: dict[str, type | None] = {
-    "intent_classifier": IntentAgent,
-    "planner": PlannerAgent,
-    "sql_database_analyst": SQLGeneratorAgent,
-    "exploratory_data_analyst": ResultAnalyzerAgent,
-    "hypothesis_generator": HypothesisAgent,
-    "insight_synthesizer": InsightAgent,
+    # Pipeline agents need an LLM service and orchestration context. They are
+    # available through /query, but deliberately not exposed as direct RPC.
+    "intent_classifier": None,
+    "planner": None,
+    "sql_database_analyst": None,
+    "exploratory_data_analyst": None,
+    "hypothesis_generator": None,
+    "insight_synthesizer": None,
     "anomaly_detector": None,          # handled by AnomalyDetector tool in pipeline
     "anomaly_advanced": AnomalySpecialist,
-    "business_simulator": SimulationAgent,
+    "business_simulator": None,
     "document_intelligence_analyst": None,
     "nlp_text_analyst": NLPSpecialist,
     "time_series_forecaster": TimeSeriesSpecialist,

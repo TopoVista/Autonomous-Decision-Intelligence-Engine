@@ -37,7 +37,7 @@ async def create_connection(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create connection: {str(exc)}",
+            detail="Failed to create the connection.",
         ) from exc
     return conn
 
@@ -60,7 +60,7 @@ async def test_connection(
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to test connection: {str(exc)}",
+            detail="Failed to test the connection.",
         ) from exc
 
 

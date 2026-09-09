@@ -7,14 +7,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConnectionCreate(BaseModel):
-    name: str
-    db_type: str = "postgresql"
-    host: str
-    port: int = 5432
-    database_name: str
-    username: str
-    password: str = Field(min_length=1)
-    ssl_mode: str = "require"
+    name: str = Field(min_length=1, max_length=255)
+    db_type: str = Field(default="postgresql", min_length=1, max_length=50)
+    host: str = Field(min_length=1, max_length=500)
+    port: int = Field(default=5432, ge=1, le=65535)
+    database_name: str = Field(min_length=1, max_length=255)
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=1024)
+    ssl_mode: str = Field(default="require", pattern="^(require|prefer|disable)$")
 
 
 class ConnectionRead(BaseModel):

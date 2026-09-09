@@ -57,4 +57,7 @@ async def get_db():
 
 async def dispose_engine() -> None:
     """Release pooled connections during a graceful Render shutdown."""
-    await get_engine().dispose()
+    engine = get_engine()
+    await engine.dispose()
+    get_sessionmaker.cache_clear()
+    get_engine.cache_clear()

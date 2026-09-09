@@ -113,12 +113,13 @@ class MLSpecialist:
                     dy = math.sqrt(sum((v - my) ** 2 for v in y[:n]))
                     corr = num / (dx * dy) if dx > 0 and dy > 0 else 0.0
                     importance[feat] = round(abs(corr), 4)
-            self._model = {"target": target, "features": features, "task": task}
             return {
+                "error": "multi_feature_regression_not_supported",
+                "message": "This lightweight specialist can train only one-feature linear regression; no prediction model was created.",
                 "model_type": task,
                 "target": target,
                 "features": features,
-                "feature_importance": importance,
+                "feature_association": importance,
                 "n_samples": len(data),
             }
 
@@ -139,7 +140,7 @@ class MLSpecialist:
                 pred = slope * x_val + intercept
                 predictions.append({"prediction": round(pred, 4)})
             else:
-                predictions.append({"prediction": 0.0})
+                predictions.append({"error": "trained model has no prediction coefficients"})
 
         return predictions
 

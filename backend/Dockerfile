@@ -22,10 +22,7 @@ COPY app ./app
 COPY alembic ./alembic
 COPY pyproject.toml ./
 
-# Create directory for SQLite database
-RUN mkdir -p /app/data
-
 EXPOSE 8000
 
 # Single worker + uvloop to stay within 512 MB free-tier RAM
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --loop uvloop"]
+CMD ["sh", "-c", "alembic -c alembic/alembic.ini upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --loop uvloop"]

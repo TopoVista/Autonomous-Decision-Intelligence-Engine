@@ -47,17 +47,32 @@ class CausalSpecialist:
 
     @skill("estimate_causal_effect")
     async def estimate_causal_effect(self, data: list[dict], treatment: str, outcome: str, confounders: list[str]) -> dict[str, Any]:
-        treat_vals = _extract_column(data, treatment)
-        outcome_vals = _extract_column(data, outcome)
-        if not treat_vals or not outcome_vals:
+        pairs = []
+        for row in data:
+            try:
+                pairs.append((float(row[treatment]), float(row[outcome])))
+            except (KeyError, TypeError, ValueError):
+                continue
+        if len(pairs) < 2:
             return {"effect_estimate": 0.0, "method": "none", "reason": "insufficient_data"}
+        treat_vals = [item[0] for item in pairs]
+        outcome_vals = [item[1] for item in pairs]
         treated = [o for t, o in zip(treat_vals, outcome_vals) if t > 0]
         untreated = [o for t, o in zip(treat_vals, outcome_vals) if t == 0]
         if treated and untreated:
             effect = sum(treated) / len(treated) - sum(untreated) / len(untreated)
         else:
             effect = _correlation(treat_vals, outcome_vals)
-        return {"effect_estimate": round(effect, 4), "method": "difference_in_means" if (treated and untreated) else "correlation", "treatment": treatment, "outcome": outcome, "confounders_adjusted": confounders, "n_samples": len(data)}
+        return {
+            "effect_estimate": round(effect, 4),
+            "method": "unadjusted_difference_in_means" if (treated and untreated) else "correlation",
+            "treatment": treatment,
+            "outcome": outcome,
+            "confounders_requested": confounders,
+            "confounders_adjusted": [],
+            "limitations": ["This lightweight estimator does not adjust for confounders and cannot establish causality."],
+            "n_samples": len(pairs),
+        }
 
 
 def register() -> CausalSpecialist:

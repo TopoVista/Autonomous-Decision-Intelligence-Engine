@@ -39,6 +39,25 @@ async def test_sql_executor_blocks_non_select(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "WITH removed AS (DELETE FROM orders RETURNING id) SELECT * FROM removed",
+        "SELECT pg_sleep(1)",
+    ],
+)
+async def test_sql_executor_blocks_mutating_ctes_and_risky_functions(tmp_path: Path, sql: str):
+    db_path = tmp_path / "executor.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, revenue REAL)")
+    conn.commit()
+    conn.close()
+
+    result = await SQLExecutor().execute(f"sqlite+aiosqlite:///{db_path}", sql)
+    assert result["success"] is False
+
+
+@pytest.mark.asyncio
 async def test_sql_executor_enforces_configured_result_cap(tmp_path: Path, monkeypatch):
     db_path = tmp_path / "limited.db"
     conn = sqlite3.connect(db_path)

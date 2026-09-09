@@ -9,12 +9,14 @@ from starlette.responses import JSONResponse
 
 from app.config import get_settings
 
-settings = get_settings()
 _COUNTS: dict[str, int] = defaultdict(int)
 
 
 class RateLimiterMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        settings = get_settings()
+        if settings.environment == "test":
+            return await call_next(request)
 
         # 🔥 CRITICAL FIX: allow preflight requests
         if request.method == "OPTIONS":
@@ -24,9 +26,15 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
         if request.url.path in {"/health", "/docs", "/openapi.json"}:
             return await call_next(request)
 
-        user_id = request.headers.get("x-user-id") or request.client.host
+        client_host = request.client.host if request.client else "unknown"
         minute = int(time.time() // 60)
-        key = f"{user_id}:{minute}"
+        key = f"{client_host}:{minute}"
+        for old_key in list(_COUNTS):
+            try:
+                if int(old_key.rsplit(":", 1)[1]) < minute - 1:
+                    _COUNTS.pop(old_key, None)
+            except ValueError:
+                _COUNTS.pop(old_key, None)
 
         _COUNTS[key] += 1
 

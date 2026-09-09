@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import ipaddress
 from typing import Any
 from uuid import UUID
 
@@ -24,6 +25,7 @@ class ConnectionService:
 
     def build_connection_string(self, conn: DBConnection, password: str | None = None) -> str:
         if conn.db_type.lower() in {"postgres", "postgresql"}:
+            self._validate_external_host(conn.host)
             query = None
             ssl_mode = (conn.ssl_mode or "").strip().lower()
             if ssl_mode == "prefer":
@@ -50,6 +52,19 @@ class ConnectionService:
         raise ValueError(f"Unsupported database type: {conn.db_type}")
 
     @staticmethod
+    def _validate_external_host(host: str) -> None:
+        """Reject obvious local/private targets before opening a user-supplied DB URL."""
+        clean_host = host.strip().strip("[]")
+        if clean_host.lower() in {"localhost", "localhost.localdomain"}:
+            raise ValueError("Database host must be a publicly reachable PostgreSQL host.")
+        try:
+            address = ipaddress.ip_address(clean_host)
+        except ValueError:
+            return
+        if not address.is_global:
+            raise ValueError("Database host must not use a loopback or private IP address.")
+
+    @staticmethod
     def describe_connection_error(error: str) -> str:
         lowered = (error or "").lower()
         if "password authentication failed" in lowered or "invalidpassworderror" in lowered:
@@ -67,7 +82,7 @@ class ConnectionService:
             return "Database connection timed out. Check network access, firewall rules, and SSL settings."
         if "ssl" in lowered:
             return "Database SSL negotiation failed. For Neon or managed Postgres, use SSL mode 'require'."
-        return error
+        return "Unable to connect to the database. Check the connection details, network access, and SSL setting."
 
     async def validate_connection_payload(self, conn_data) -> None:
         temp_conn = DBConnection(

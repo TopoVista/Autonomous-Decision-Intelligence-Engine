@@ -26,15 +26,21 @@ def _numeric_series(col: str, rows: list[dict]) -> list[float]:
     return [f for r in rows if (f := _coerce_float(r.get(col))) is not None]
 
 
+def _paired_numeric_series(a: str, b: str, rows: list[dict]) -> tuple[list[float], list[float]]:
+    pairs = [(_coerce_float(row.get(a)), _coerce_float(row.get(b))) for row in rows]
+    valid = [(left, right) for left, right in pairs if left is not None and right is not None]
+    return [left for left, _ in valid], [right for _, right in valid]
+
+
 def deep_profile(columns: list[str], rows: list[dict], descriptor: DatasetDescriptor) -> DatasetDescriptor:
     # ── Correlations (Pearson, O(n*c^2)) ────────────────────────────────────
     numeric_cols = [c for c in columns if _numeric_series(c, rows)]
     if len(numeric_cols) >= 2:
-        series_map = {c: _numeric_series(c, rows) for c in numeric_cols}
         pairs: list[dict] = []
         for i, a in enumerate(numeric_cols):
             for b in numeric_cols[i + 1:]:
-                r = _pearson(series_map[a], series_map[b])
+                left, right = _paired_numeric_series(a, b, rows)
+                r = _pearson(left, right)
                 if r is not None and abs(r) > 0.5:
                     pairs.append({"a": a, "b": b, "correlation": round(r, 3)})
         descriptor.statistics["correlations"] = sorted(pairs, key=lambda p: -abs(p["correlation"]))[:20]

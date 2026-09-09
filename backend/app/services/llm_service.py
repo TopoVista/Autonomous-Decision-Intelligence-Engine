@@ -310,8 +310,8 @@ def _local_simulation(question: str, parameters: dict[str, Any], schema_context:
 
 class LLMService:
     def __init__(self) -> None:
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key) if AsyncOpenAI and settings.openai_api_key else None
-        self.model = "gpt-4o-mini-2024-07-18"
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key, timeout=settings.llm_timeout_seconds) if AsyncOpenAI and settings.openai_api_key else None
+        self.model = settings.llm_model
         self.cache = QueryCache()
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
@@ -371,7 +371,7 @@ class LLMService:
         if not settings.ollama_base_url:
             return None
         try:
-            async with httpx.AsyncClient(timeout=60) as client:
+            async with httpx.AsyncClient(timeout=settings.llm_timeout_seconds) as client:
                 response = await client.post(
                     f"{settings.ollama_base_url.rstrip('/')}/api/chat",
                     json={
@@ -469,4 +469,3 @@ class LLMService:
             task_description = task_match.group(1).strip() if task_match else None
             return json.dumps(recommend_chart(columns, rows, task_description))
         return question
-

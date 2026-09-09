@@ -69,5 +69,11 @@ class QueryCache:
                 pass
 
         async with _LOCK:
+            now = time.time()
+            for cache_key, (expires_at, _) in list(_LOCAL_CACHE.items()):
+                if expires_at <= now:
+                    _LOCAL_CACHE.pop(cache_key, None)
+            max_entries = get_settings().max_local_cache_entries
+            while len(_LOCAL_CACHE) >= max_entries:
+                _LOCAL_CACHE.pop(next(iter(_LOCAL_CACHE)))
             _LOCAL_CACHE[hashed] = (time.time() + ttl, value)
-

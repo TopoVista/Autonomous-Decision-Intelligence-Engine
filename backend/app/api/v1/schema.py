@@ -42,7 +42,7 @@ async def get_schema(
     try:
         schema = await inspector.get_schema(connection_string)
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Unable to inspect schema for this connection") from exc
     schema = jsonable_encoder(schema)
     prompt_string = inspector.to_prompt_string(schema)
     if cached is None:

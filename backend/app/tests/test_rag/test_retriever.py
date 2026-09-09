@@ -104,8 +104,20 @@ class TestRAGRetriever:
             user_id="user-1",
         )
 
-        deleted = await retriever.delete_document("doc_a.txt")
+        deleted = await retriever.delete_document("doc_a.txt", "user-1")
         assert deleted >= 1
+
+    @pytest.mark.asyncio
+    async def test_delete_document_is_scoped_to_its_owner(self):
+        store = InMemoryVectorStore()
+        retriever = RAGRetriever(vector_store=store)
+        await retriever.ingest_document(b"Owner one document.", "shared.txt", "user-1")
+        await retriever.ingest_document(b"Owner two document.", "shared.txt", "user-2")
+
+        deleted = await retriever.delete_document("shared.txt", "user-1")
+        assert deleted >= 1
+        remaining = await retriever.retrieve("owner two", "user-2")
+        assert remaining
 
     @pytest.mark.asyncio
     async def test_retrieve_with_source_filter(self):

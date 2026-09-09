@@ -26,7 +26,7 @@ SUPPORTED_EXTENSIONS = {".csv", ".tsv", ".json"}
 _HEAVY_EXTENSIONS = {".xlsx", ".xls", ".parquet"}
 # Lists of Python dicts are substantially larger than their source CSV.  This
 # keeps profiling and persistence inside the memory budget of a small instance.
-MAX_ROWS = 100_000
+MAX_ROWS = 25_000
 
 
 class IngestionError(ValueError):
@@ -52,7 +52,11 @@ def detect_source_type(filename: str) -> str:
 def _load_csv(content: bytes, delimiter: str = ",") -> tuple[list[str], list[dict]]:
     text_io = io.StringIO(content.decode("utf-8-sig", errors="replace"))
     reader = csv.DictReader(text_io, delimiter=delimiter)
-    rows = list(reader)
+    rows = []
+    for row in reader:
+        rows.append(row)
+        if len(rows) > MAX_ROWS:
+            raise IngestionError(f"CSV has more than {MAX_ROWS} rows")
     columns = list(reader.fieldnames or [])
     return columns, rows
 

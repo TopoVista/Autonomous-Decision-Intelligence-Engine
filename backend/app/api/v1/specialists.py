@@ -2,21 +2,32 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+import structlog
+from pydantic import BaseModel, Field
 
 from app.dependencies import get_current_user, get_db
 from app.schemas.auth import AuthenticatedUser
 from app.services.user_service import ensure_user
 
 router = APIRouter(prefix="/specialists", tags=["specialists"])
+logger = structlog.get_logger()
 
 
 class InvokeRequest(BaseModel):
-    skill: str
-    params: dict[str, Any] = {}
+    skill: str = Field(min_length=1, max_length=100)
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+def _registered_skills(instance: Any) -> dict[str, Any]:
+    return {
+        getattr(method, "__skill_name__"): method
+        for _, method in inspect.getmembers(instance, predicate=callable)
+        if getattr(method, "__skill_name__", None)
+    }
 
 
 @router.get("/")
@@ -27,7 +38,7 @@ async def list_specialists(
     """List all registered specialists with their capabilities."""
     await ensure_user(db, current_user)
 
-    from app.specialists import specialist_registry
+    from app.specialists import get_specialist_class, specialist_registry
 
     specialists = specialist_registry.list(available_only=False)
     return {
@@ -40,6 +51,7 @@ async def list_specialists(
                 "supported_data_types": s.supported_data_types,
                 "tools": s.tools,
                 "available": s.available,
+                "direct_invocation": get_specialist_class(s.id) is not None,
             }
             for s in specialists
         ],
@@ -56,7 +68,7 @@ async def get_specialist(
     """Get details of a specific specialist."""
     await ensure_user(db, current_user)
 
-    from app.specialists import specialist_registry
+    from app.specialists import get_specialist_class, specialist_registry
 
     spec = specialist_registry.metadata(specialist_id)
     if spec is None:
@@ -70,6 +82,7 @@ async def get_specialist(
         "supported_data_types": spec.supported_data_types,
         "tools": spec.tools,
         "available": spec.available,
+        "direct_invocation": get_specialist_class(spec.id) is not None,
     }
 
 
@@ -113,49 +126,38 @@ async def invoke_specialist(
             detail=f"Specialist '{specialist_id}' has no invokable implementation (pipeline-only).",
         )
 
-    # Instantiate the specialist and look up the skill method
+    # Only explicitly decorated skills are public. Never allow a client to
+    # call an arbitrary public method (for example register or helper methods).
     instance = cls()
-
-    # Skill methods are registered via the @skill decorator; find by name
-    skill_method = None
-    for attr_name in dir(instance):
-        if attr_name.startswith("_"):
-            continue
-        attr = getattr(instance, attr_name, None)
-        if callable(attr) and getattr(attr, "_skill_name", None) == body.skill:
-            skill_method = attr
-            break
-
-    # Also try direct method name match as fallback
-    if skill_method is None:
-        skill_method = getattr(instance, body.skill, None)
-        if not callable(skill_method):
-            skill_method = None
+    registered_skills = _registered_skills(instance)
+    skill_method = registered_skills.get(body.skill)
 
     if skill_method is None:
         # List available skills
-        available_skills = [
-            getattr(getattr(instance, a, None), "_skill_name", a)
-            for a in dir(instance)
-            if not a.startswith("_") and callable(getattr(instance, a, None))
-        ]
         raise HTTPException(
             status_code=404,
             detail=f"Skill '{body.skill}' not found on specialist '{specialist_id}'. "
-            f"Available: {[s for s in available_skills if s]}",
+            f"Available: {sorted(registered_skills)}",
         )
 
     try:
+        inspect.signature(skill_method).bind(**body.params)
         result = await skill_method(**body.params)
     except TypeError as exc:
         raise HTTPException(
             status_code=422,
             detail=f"Invalid parameters for skill '{body.skill}': {exc}",
         ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid parameters for skill '{body.skill}': {exc}",
+        ) from exc
     except Exception as exc:
+        logger.exception("specialist_skill_failed", specialist_id=specialist_id, skill=body.skill)
         raise HTTPException(
             status_code=500,
-            detail=f"Skill execution error: {exc}",
+            detail="Specialist execution failed. Please retry with valid input.",
         ) from exc
 
     return {

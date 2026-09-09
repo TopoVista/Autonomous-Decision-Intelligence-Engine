@@ -85,14 +85,13 @@ def _isolation_forest_simple(values: list[list[float]], contamination: float = 0
             if abs((v - m) / s) > 2.5:
                 labels[i] = -1
 
+    means = [_mean([row[j] for row in values]) for j in range(len(values[0]))]
+    stds = [_std([row[j] for row in values]) for j in range(len(values[0]))]
     max_deviations = []
     for i, row in enumerate(values):
         total_dev = 0
         for j, v in enumerate(row):
-            col_vals = [r[j] for r in values]
-            col_std = _std(col_vals)
-            col_mean = _mean(col_vals)
-            total_dev += abs((v - col_mean) / max(col_std, 0.001))
+            total_dev += abs((v - means[j]) / max(stds[j], 0.001))
         max_deviations.append((i, total_dev))
 
     max_deviations.sort(key=lambda x: x[1], reverse=True)

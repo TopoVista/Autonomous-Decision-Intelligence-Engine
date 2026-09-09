@@ -16,10 +16,14 @@ def _local_key() -> bytes:
 class EncryptionService:
     def __init__(self) -> None:
         settings = get_settings()
+        if settings.environment.lower() == "production" and not settings.encryption_key:
+            raise RuntimeError("ENCRYPTION_KEY is required in production")
         key = settings.encryption_key.encode("utf-8") if settings.encryption_key else _local_key()
         try:
             self.cipher = Fernet(key)
-        except Exception:
+        except Exception as exc:
+            if settings.encryption_key:
+                raise ValueError("ENCRYPTION_KEY must be a valid Fernet key") from exc
             self.cipher = Fernet(_local_key())
 
     def encrypt(self, plaintext: str) -> str:
@@ -27,4 +31,3 @@ class EncryptionService:
 
     def decrypt(self, ciphertext: str) -> str:
         return self.cipher.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
-

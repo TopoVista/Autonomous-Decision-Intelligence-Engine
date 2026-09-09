@@ -10,10 +10,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.config import get_settings
 from app.memory.embedding_service import EmbeddingService
 from app.rag.chunker import Chunk, chunk_text
 from app.rag.parser import parse_document
 from app.rag.vector_store import (
+    InMemoryVectorStore,
     StoredChunk,
     VectorStore,
     get_default_store,
@@ -95,6 +97,12 @@ class RAGRetriever:
                 "message": "No extractable text found in document.",
             }
 
+        settings = get_settings()
+        if len(chunks) > settings.max_document_chunks:
+            raise ValueError(f"Document creates {len(chunks)} chunks; limit is {settings.max_document_chunks}.")
+        if isinstance(self.store, InMemoryVectorStore) and self.store.count() + len(chunks) > settings.max_in_memory_chunks:
+            raise MemoryError("Document storage is at capacity. Delete an existing document or configure Chroma.")
+
         # Step 3: Embed each chunk
         stored_chunks: list[StoredChunk] = []
         for chunk in chunks:
@@ -169,9 +177,9 @@ class RAGRetriever:
         """
         return await self.store.delete_by_user(user_id)
 
-    async def delete_document(self, source: str) -> int:
+    async def delete_document(self, source: str, user_id: str) -> int:
         """Delete all chunks from a specific document source.
 
         Returns the number of chunks deleted.
         """
-        return await self.store.delete_by_source(source)
+        return await self.store.delete_by_source(source, user_id=user_id)

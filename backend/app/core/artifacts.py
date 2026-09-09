@@ -76,7 +76,13 @@ class ArtifactStore:
             content=content,
             metadata=dict(metadata or {}),
         )
-        self._by_session.setdefault(session_id or "_global", []).append(artifact)
+        key = session_id or "_global"
+        items = self._by_session.setdefault(key, [])
+        items.append(artifact)
+        from app.config import get_settings
+        overflow = len(items) - get_settings().max_artifacts_per_session
+        if overflow > 0:
+            del items[:overflow]
         return artifact
 
     def list(self, session_id: str | None = None, *, type: str | None = None) -> list[Artifact]:

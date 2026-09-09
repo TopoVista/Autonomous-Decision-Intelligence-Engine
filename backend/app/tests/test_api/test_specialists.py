@@ -33,3 +33,18 @@ async def test_get_specialist(client):
 async def test_get_nonexistent_specialist(client):
     response = await client.get("/api/v1/specialists/nonexistent")
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_invoke_only_registered_specialist_skill(client):
+    response = await client.post(
+        "/api/v1/specialists/nlp_text_analyst/invoke",
+        json={"skill": "sentiment", "params": {"text": "This product is great"}},
+    )
+    assert response.status_code == 200
+
+    blocked = await client.post(
+        "/api/v1/specialists/nlp_text_analyst/invoke",
+        json={"skill": "register", "params": {}},
+    )
+    assert blocked.status_code == 404
